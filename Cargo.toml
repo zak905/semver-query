@@ -1,0 +1,9 @@
+[package]
+name = "semver-query"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.43", features = ["derive"] }
+luaparse = "0.2.0"
+regex = "1.11.1"
