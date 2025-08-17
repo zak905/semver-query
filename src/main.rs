@@ -1,21 +1,24 @@
 
-use std::any::Any;
 use std::fmt::Debug;
 use std::io;
 use std::fs;
 use std::fmt;
+use std::io::Write;
 use std::str::FromStr;
-use luaparse::ast::BinOp;
+use std::process::ExitCode;
+use jsonpath_rust::JsonPath;
 use luaparse::ast::Expr;
-use luaparse::ast::{IfStat};
 use luaparse::ast::Statement::If;
+use luaparse::token::TokenValue::Symbol;
 use std::error::Error;
 use clap::{Command, Arg, value_parser};
 use regex::Regex;
 use luaparse::{parse};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value};
 
 
-#[derive(Debug)]
+#[derive(Debug,Serialize, Deserialize)]
 struct SemVer {
     major: u16,
     minor: u16,
@@ -27,34 +30,46 @@ struct SemVer {
 #[derive(Debug)]
 struct QueryTraversalResult {
     identifiers: Vec<String>,
-    comparators: Vec<String>,
+    comparators: Vec<luaparse::token::Symbol>,
     literals: Vec<String>,
-    connectors: Vec<String>,
+    connectors: Vec<luaparse::token::Symbol>,
+    errors: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 struct SemVerParseError{
-    item: String,
+    msg: String,
 }
 
 impl fmt::Display for SemVerParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "unable to parse {}", self.item)
+        write!(f, "{}", self.msg)
     }
 }
 
-impl SemVerParseError {
-    pub fn new(item_with_err: String) -> SemVerParseError {
-        SemVerParseError {
-            item: item_with_err,
+impl fmt::Display for SemVer {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        //TODO: add prerelease and build number if they are supported
+        write!(f, "{}.{}.{}", self.major, self.minor, self.minor)
+    }
+}
+
+impl QueryTraversalResult {
+    pub fn new() -> QueryTraversalResult {
+        QueryTraversalResult {
+            identifiers: Vec::new(),
+            comparators: Vec::new(),
+            literals: Vec::new(),
+            connectors: Vec::new(), 
+            errors: Vec::new(),
         }
     }
 }
 
 impl SemVerParseError {
-    pub fn new(item_with_err: String) -> SemVerParseError {
+    pub fn new(msg: String) -> SemVerParseError {
         SemVerParseError {
-            item: item_with_err,
+            msg,
         }
     }
 }
@@ -62,7 +77,7 @@ impl SemVerParseError {
 impl Error for SemVerParseError {}
 
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> ExitCode {
     let matches = Command::new("semver-query")
         .about("utility for querying a line separated list of entries.")
         .version("0.0.1")
@@ -78,7 +93,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ).get_matches();
 
 
-        println!("{:?}", matches.get_one::<String>("query").unwrap());
+       // println!("{:?}", matches.get_one::<String>("query").unwrap());
 
         let  input: Result<String, io::Error> = match matches.get_one::<String>("filename") {
             Some(filename) => {
@@ -93,14 +108,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
 
 
-   match query_semver(matches.get_one::<String>("query").unwrap(), input?.lines().collect()) {
+   match query_semver(matches.get_one::<String>("query").unwrap(), input.unwrap().lines().collect()) {
     Ok(query) => {
-        print!("{:?}", query);
-        Ok(())
+        write!(io::stdout(), "{:?}", query);
+        ExitCode::SUCCESS
     },
     Err(err) => {
-        println!("here: {}", err);
-        Err(err)
+        write!(io::stderr(), "{}", err);
+        ExitCode::FAILURE
     }
    }
 }
@@ -143,9 +158,9 @@ end
 "#);
 
 
-    for parsed_sem_ver in parsed_sem_vers {
+/*     for parsed_sem_ver in parsed_sem_vers {
         println!("{:#?}", parsed_sem_ver);
-    }
+    } */
 
     match parse(buf.as_str()) {
         Ok(block) => {
@@ -154,43 +169,32 @@ end
             match block.statements[5].clone() {
                 If(if_statement) => {
                     //println!("the condition: {:?}", if_statement.condition);
-                    traverse_bin_op_expression(if_statement.condition);
-/*                     if let Expr::BinOp(binopexpr)= if_statement.condition {
-                        let mut right = *binopexpr.clone().right;
-                        let mut left: Expr<'_> = *binopexpr.clone().left;
-                        println!("left: {}", binopexpr.left.to_string());
-                        println!("op: {:?}", binopexpr.op.0.token.value);
-                        traverse_bin_op_expression(*binopexpr.left);
-                        traverse_bin_op_expression(*binopexpr.right);
-                     loop {
-                            if let Expr::BinOp(ref current) = left {
-                                println!("1. left inside: {}", current.left.to_string());
-                                println!("2. op inside: {:?}", current.op.0.token.value);
-                                println!("3. right inside: {}", current.right.to_string());
-                                 left = *current.clone().left;
-                            } else {
-                                break
-                            }
-                        } 
-                       
-                       loop {
-                            if let Expr::BinOp(ref current) = right {
-                                println!("4. left inside: {}", current.left.to_string());
-                                println!("5. op inside: {:?}", current.op.0.token.value);
-                                println!("6. right inside: {}", current.right.to_string());
-                                 right = *current.clone().right;
-                            } else {
-                                break
-                            }
-                        }  
-                    } */
+                    let mut traversal_result = QueryTraversalResult::new();
+                    traverse_bin_op_expression(if_statement.condition, &mut traversal_result);
+                    println!("{:#?}", traversal_result);
+                    if traversal_result.errors.len() > 0 {
+                        return Err(Box::new(SemVerParseError::new(format!("error parsing query: {:?}", traversal_result.errors))));
+                    }
+                    // TODO: add an additional check here on variable names: only major, minor, patch are supported for now
+                    let jsonpath_query = convert_to_jsonpath_syntax(&traversal_result);
+                    println!("{}", jsonpath_query);
+                    // Parse the string of data into serde_json::Value.
+                    let v: Value = serde_json::from_str(serde_json::to_string(&parsed_sem_vers)?.as_str())?;  
+                    let res_json: Vec<Value> =  v.query(jsonpath_query.as_str())?.iter().map(|v| (*v).clone()).collect();
+                    let mut final_result: Vec<String> = Vec::new();
+                    for val in res_json {
+                        final_result.push(serde_json::from_value::<SemVer>(val)?.to_string());
+                    }
+
+                    return Ok(final_result);
                 }
                 _ => {}
             }
         }
         Err(err) => {
-            println!("here here");
-            println!("{:?}", err)
+            // print error only for debugging
+             // println!("{}", err);
+            return Err(Box::new(SemVerParseError::new(String::from("unable to parse query"))));
         }
     }
 
@@ -198,20 +202,80 @@ end
 }
 
 
-fn traverse_bin_op_expression(node: Expr)  {
-     
-    if let Expr::BinOp(ref current) = node {
-        let type_id = std::any::type_name_of_val(&*current.left);
-                                println!("4. left inside: {}, {}", current.left.to_string(), type_id);
-                                println!("5. op inside: {:?}", current.op.0.token.value);
-                                println!("6. right inside: {}", current.right.to_string());
-                                 println!("==============================================");
-                                 traverse_bin_op_expression(*current.clone().left);
-                                 traverse_bin_op_expression(*current.clone().right);
-                                 //current.right.to_string()
-                                 //left = *current.clone().left;
-                            } else {
-                                println!("second case: {}", node.to_string());
-                            }
+fn traverse_bin_op_expression(node: Expr, traversal_result: &mut QueryTraversalResult)  {
+    match node {
+        Expr::BinOp(binop_expr) => {
+            //println!("4. left inside: {}", binop_expr.left.to_string());
+            //println!("5. op inside: {:?}", binop_expr.op.0.token.value);
+            //println!("6. right inside: {:?}", binop_expr.right);
+            //println!("==============================================");
 
+              if let Expr::BinOp(_) = *binop_expr.left {
+                match binop_expr.op.0.token.value.clone() {
+                    Symbol(luaparse::token::Symbol::And) => {traversal_result.connectors.push(luaparse::token::Symbol::And)},
+                    Symbol(luaparse::token::Symbol::Or) => {traversal_result.connectors.push(luaparse::token::Symbol::Or)},
+                    x => {traversal_result.errors.push(format!("unsupported logical operator {:?}, only and/or are supported", x))}
+                }
+                
+                match *binop_expr.right {
+                    Expr::BinOp(_) => {}
+                    _ => {
+                      traversal_result.errors.push(format!("invalid expression {}", binop_expr.right.to_string()));
+                    }
+                }
+              } else {
+                match binop_expr.op.0.token.value.clone() {
+                    Symbol(luaparse::token::Symbol::Greater) => {traversal_result.comparators.push(luaparse::token::Symbol::Greater)},
+                    Symbol(luaparse::token::Symbol::GreaterEqual) => {traversal_result.comparators.push(luaparse::token::Symbol::GreaterEqual)},
+                    Symbol(luaparse::token::Symbol::Less) => {traversal_result.comparators.push(luaparse::token::Symbol::Less)},
+                    Symbol(luaparse::token::Symbol::LessEqual) => {traversal_result.comparators.push(luaparse::token::Symbol::LessEqual)},
+                    Symbol(luaparse::token::Symbol::Equal) => {traversal_result.comparators.push(luaparse::token::Symbol::Equal)},
+                    Symbol(luaparse::token::Symbol::NotEqual) => {traversal_result.comparators.push(luaparse::token::Symbol::NotEqual)},
+                    x => {traversal_result.errors.push(format!("unsupported boolean operator {:?}, only >, >=, <, <=, ==, ~= are supported", x))}
+                }
+              }
+
+            traverse_bin_op_expression(*binop_expr.clone().left, traversal_result);
+            traverse_bin_op_expression(*binop_expr.clone().right, traversal_result);
+        }
+        Expr::Prefix(prefix_exp) => {
+            traversal_result.identifiers.push(prefix_exp.to_string())
+        }
+        Expr::Number(number_lit) => {
+            traversal_result.literals.push(number_lit.to_string())
+        }
+        _ => {
+
+        }
+    }
 }
+
+
+fn convert_to_jsonpath_syntax(traversal_result: &QueryTraversalResult) -> String {
+    let mut jsonpath_query = String::from("$[?");
+
+    for i in 0..traversal_result.identifiers.len() {
+        jsonpath_query.push_str("@.");
+        jsonpath_query.push_str(traversal_result.identifiers[i].as_str());
+        jsonpath_query.push_str(" ");
+        jsonpath_query.push_str(traversal_result.comparators[i].as_str());
+        jsonpath_query.push_str(" ");
+        jsonpath_query.push_str(traversal_result.literals[i].as_str());
+        if i != traversal_result.identifiers.len() -1 {
+            jsonpath_query.push_str(" ");
+            jsonpath_query.push_str(lua_boolean_operator_to_jsonpath_string(traversal_result.connectors[i]));
+            jsonpath_query.push_str(" ");
+        }
+    }
+
+    jsonpath_query.push_str("]");
+    jsonpath_query
+}
+
+fn lua_boolean_operator_to_jsonpath_string(symbol: luaparse::token::Symbol) -> &'static str {
+    match symbol {
+        luaparse::token::Symbol::And => {"&&"}
+        luaparse::token::Symbol::Or => {"||"}
+        _ => {"unknown"}
+    }
+} 
