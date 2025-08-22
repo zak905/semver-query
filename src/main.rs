@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use std::io;
 use std::fs;
 use std::fmt;
+use std::io::IsTerminal;
 use std::io::Write;
-use std::str::FromStr;
 use std::process::ExitCode;
 use jsonpath_rust::JsonPath;
 use luaparse::ast::Expr;
@@ -49,8 +49,8 @@ impl fmt::Display for SemVerParseError {
 
 impl fmt::Display for SemVer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        //TODO: add prerelease and build number if they are supported
-        write!(f, "{}.{}.{}", self.major, self.minor, self.minor)
+        //TODO: add prerelease and build number, if they are supported
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }
 }
 
@@ -79,7 +79,7 @@ impl Error for SemVerParseError {}
 
 fn main() -> ExitCode {
     let matches = Command::new("semver-query")
-        .about("utility for querying a line separated list of entries.")
+        .about("utility for querying data that follows the semantic version format. It expects a list of line separated entries.")
         .version("0.0.1")
         .arg(
             Arg::new("query").
@@ -89,51 +89,62 @@ fn main() -> ExitCode {
             value_parser(value_parser!(String)).
             required(true).num_args(1)
         ).arg(
-            Arg::new("filename").help("the input file name. It must contain line separated entries.")
+            Arg::new("filename").help("the input file name. It must contain line separated entries. \nIf not provided, the program attempts to read from the standard input.").required(false)
         ).get_matches();
 
-
-       // println!("{:?}", matches.get_one::<String>("query").unwrap());
-
-        let  input: Result<String, io::Error> = match matches.get_one::<String>("filename") {
+        let  input: Vec<String> = match matches.get_one::<String>("filename") {
             Some(filename) => {
                match fs::read_to_string(filename) {
-                Ok(data) => {Ok(data)}
-                Err(err) => {Err(err)}
+                Ok(data) => {
+                    data.lines().map(|ln|String::from(ln)).collect()}
+                Err(err) => {
+                    writeln!(io::stderr(), "{}", err).unwrap();
+                    return ExitCode::FAILURE;
+                }
                }
             },
             None => {
-                io::read_to_string(io::stdin())
+                let mut lines: Vec<String> = Vec::new();
+                if io::stdin().is_terminal() {
+                       writeln!(io::stderr(), "no filename provided, input from stdin is empty.").unwrap();
+                       return ExitCode::FAILURE;
+                } else {
+                    for line in io::stdin().lines() {
+                        lines.push(line.unwrap());
+                    }
+                    lines
+                }
             }
         };
 
 
-   match query_semver(matches.get_one::<String>("query").unwrap(), input.unwrap().lines().collect()) {
-    Ok(query) => {
-        write!(io::stdout(), "{:?}", query);
+    match query_semver(matches.get_one::<String>("query").unwrap(), input) {
+    Ok(query_result) => {
+        for res_item in query_result {
+            println!("{}", res_item);
+        } 
         ExitCode::SUCCESS
     },
     Err(err) => {
-        write!(io::stderr(), "{}", err);
+        writeln!(io::stderr(), "{}", err).unwrap();
         ExitCode::FAILURE
     }
    }
 }
 
-fn query_semver(query: &String, semver_entries: Vec<&str>) -> Result<Vec<String>, Box<dyn Error>> {
-    print!("{:?}", semver_entries);
+fn query_semver(query: &String, semver_entries: Vec<String>) -> Result<Vec<String>, Box<dyn Error>> {
     // source: https://github.com/semver/semver/blob/master/semver.md?plain=1#L346
     let semver_regex = Regex::new(r"^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$")?;
 
     let mut parsed_sem_vers :Vec<SemVer> = vec![];
 
     for semver in semver_entries {
-        if !semver_regex.is_match(semver) {
-            return Err(Box::new(SemVerParseError::new(String::from_str(semver)?)));
+        if !semver_regex.is_match(semver.as_str()) {
+            return Err(Box::new(SemVerParseError::new(semver)));
         }
 
-        let captures = semver_regex.captures(semver).
-        ok_or(Box::new(SemVerParseError::new(String::from_str(semver)?)))?;
+        let captures = semver_regex.captures(semver.as_str()).
+        ok_or(Box::new(SemVerParseError::new(semver.clone())))?;
 
         parsed_sem_vers.push(SemVer{
             major: *(&captures["major"].parse::<u16>()?),
@@ -157,29 +168,25 @@ if {query} then
 end
 "#);
 
-
-/*     for parsed_sem_ver in parsed_sem_vers {
-        println!("{:#?}", parsed_sem_ver);
-    } */
-
     match parse(buf.as_str()) {
         Ok(block) => {
-            println!("statement length: {}", block.statements.len());
+            //println!("statement length: {}", block.statements.len());
 
             match block.statements[5].clone() {
                 If(if_statement) => {
                     //println!("the condition: {:?}", if_statement.condition);
                     let mut traversal_result = QueryTraversalResult::new();
                     traverse_bin_op_expression(if_statement.condition, &mut traversal_result);
-                    println!("{:#?}", traversal_result);
+                    //println!("{:#?}", traversal_result);
                     if traversal_result.errors.len() > 0 {
                         return Err(Box::new(SemVerParseError::new(format!("error parsing query: {:?}", traversal_result.errors))));
                     }
                     // TODO: add an additional check here on variable names: only major, minor, patch are supported for now
                     let jsonpath_query = convert_to_jsonpath_syntax(&traversal_result);
-                    println!("{}", jsonpath_query);
+                    //println!("{}", jsonpath_query);
                     // Parse the string of data into serde_json::Value.
-                    let v: Value = serde_json::from_str(serde_json::to_string(&parsed_sem_vers)?.as_str())?;  
+                    let json = serde_json::to_string(&parsed_sem_vers)?;
+                    let v: Value = serde_json::from_str(json.as_str())?;  
                     let res_json: Vec<Value> =  v.query(jsonpath_query.as_str())?.iter().map(|v| (*v).clone()).collect();
                     let mut final_result: Vec<String> = Vec::new();
                     for val in res_json {
@@ -205,11 +212,6 @@ end
 fn traverse_bin_op_expression(node: Expr, traversal_result: &mut QueryTraversalResult)  {
     match node {
         Expr::BinOp(binop_expr) => {
-            //println!("4. left inside: {}", binop_expr.left.to_string());
-            //println!("5. op inside: {:?}", binop_expr.op.0.token.value);
-            //println!("6. right inside: {:?}", binop_expr.right);
-            //println!("==============================================");
-
               if let Expr::BinOp(_) = *binop_expr.left {
                 match binop_expr.op.0.token.value.clone() {
                     Symbol(luaparse::token::Symbol::And) => {traversal_result.connectors.push(luaparse::token::Symbol::And)},
