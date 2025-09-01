@@ -4,6 +4,7 @@ use std::fmt;
 use jsonpath_rust::JsonPath;
 use luaparse::ast::Expr;
 use luaparse::ast::Statement::If;
+use luaparse::token::Symbol as symb;
 use luaparse::token::TokenValue::Symbol;
 use std::error::Error;
 use regex::Regex;
@@ -32,7 +33,6 @@ struct QueryTraversalResult {
 
 impl fmt::Display for SemVer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        //TODO: add prerelease and build number, if they are supported
         let mut sem_ver: String; 
         if self.has_v_prefix {
             sem_ver = format!("v{}.{}.{}", self.major, self.minor, self.patch);
@@ -117,7 +117,6 @@ end
     match parse(buf.as_str()) {
         Ok(block) => {
             //println!("statement length: {}", block.statements.len());
-
             match block.statements[5].clone() {
                 If(if_statement) => {
                     //println!("the condition: {:?}", if_statement.condition);
@@ -177,7 +176,8 @@ fn traverse_bin_op_expression(node: Expr, traversal_result: &mut QueryTraversalR
                     Symbol(luaparse::token::Symbol::LessEqual) => {traversal_result.comparators.push(luaparse::token::Symbol::LessEqual)},
                     Symbol(luaparse::token::Symbol::Equal) => {traversal_result.comparators.push(luaparse::token::Symbol::Equal)},
                     Symbol(luaparse::token::Symbol::NotEqual) => {traversal_result.comparators.push(luaparse::token::Symbol::NotEqual)},
-                    x => {traversal_result.errors.push(format!("unsupported boolean operator {:?}, only >, >=, <, <=, ==, ~= are supported", x))}
+                    Symbol(any) => {traversal_result.errors.push(format!("unsupported operator {}, only >, >=, <, <=, ==, ~= are supported", symb::to_string(&any)))}
+                    _ => {traversal_result.errors.push(String::from("invalid syntax"))}
                 }
               }
 
@@ -260,13 +260,10 @@ mod tests {
             query: "$%^",
             static_input_data: vec![input_data],
             error_message: Some("unable to parse query"),
-
         }, FailureTestCase{
             query: "a + b",
             static_input_data: vec![input_data],
-            // TODO: fix error message
-            error_message: Some("error parsing query: [\"unsupported boolean operator Symbol(Add), only >, >=, <, <=, ==, ~= are supported\"]"),
-
+            error_message: Some("error parsing query: [\"unsupported operator `+`, only >, >=, <, <=, ==, ~= are supported\"]"),
         }, FailureTestCase{
             query: "minor += major",
             static_input_data: vec![input_data],
