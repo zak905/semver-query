@@ -36,10 +36,8 @@ impl fmt::Display for SemVer {
         let mut sem_ver: String; 
         if self.has_v_prefix {
             sem_ver = format!("v{}.{}.{}", self.major, self.minor, self.patch);
-            //write!(f, "v{}.{}.{}", self.major, self.minor, self.patch);
         } else {
             sem_ver = format!("{}.{}.{}", self.major, self.minor, self.patch);
-            //write!(f, "{}.{}.{}", self.major, self.minor, self.patch);
         }   
         match self.pre_release.clone() {
             Some(pre_release) => {
@@ -125,16 +123,13 @@ end
                     //println!("the condition: {:?}", if_statement.condition);
                     let mut traversal_result = QueryTraversalResult::new();
                     traverse_bin_op_expression(if_statement.condition, &mut traversal_result);
-                    //println!("{:#?}", traversal_result);
                     if traversal_result.errors.len() > 0 {
                         return Err(Box::new(io::Error::new(io::ErrorKind::InvalidInput, format!("error parsing query: {:?}", traversal_result.errors))));
                     }
                     // TODO: add an additional check here on variable names: only major, minor, patch are supported for now
                     let jsonpath_query = convert_to_jsonpath_syntax(&traversal_result);
-                    //println!("query: {}", jsonpath_query);
                     // Parse the string of data into serde_json::Value.
                     let json = serde_json::to_string(&parsed_sem_vers)?;
-                    //println!("json: {}", json);
                     let v: Value = serde_json::from_str(json.as_str())?;  
                     let res_json: Vec<Value> =  v.query(jsonpath_query.as_str())?.iter().map(|v| (*v).clone()).collect();
                     let mut final_result: Vec<String> = Vec::new();
@@ -362,7 +357,7 @@ mod tests {
 
      #[test]
     fn queries_set_2() -> Result<(), Box<dyn Error>> {
-     let input_data  = fs::read_to_string("src/test_data/kubernetes/input.txt")?;
+      let input_data  = fs::read_to_string("src/test_data/kubernetes/input.txt")?;
       let input_set: Vec<String> = input_data.lines().map(|ln|String::from(ln)).collect();
 
         let queries: Vec<&str> = vec![
@@ -389,8 +384,31 @@ mod tests {
         Ok(())
     }
 
-    fn queries_set_3() {
-        //let result = internal_adder(2, 2);
-        //assert_eq!(result, 4);
+    #[test]
+    fn queries_set_3() -> Result<(), Box<dyn Error>>{
+      let input_data  = fs::read_to_string("src/test_data/tensorflow/input.txt")?;
+      let input_set: Vec<String> = input_data.lines().map(|ln|String::from(ln)).collect();
+
+        let queries: Vec<&str> = vec![
+            "major == 2 and minor == 0",
+            "major == 1 and minor == 15 and patch > 0",
+            "major == 2 and minor >= 7 and minor <= 9",
+            "minor == 17 and patch > 0",
+        ];
+        for i in 0..queries.len() {
+            let expectation_file = fs::read_to_string(format!("src/test_data/tensorflow/case_{i}_expectation.txt"))?;
+            let expected_result: Vec<String> = expectation_file.lines().map(|ln|String::from(ln)).collect();
+
+            match query_semver(&String::from(queries[i]),
+            input_set.clone(), true) {
+                Ok(actual_result) => {
+                    assert_eq!(actual_result, expected_result, "case {} failed: expected: {:?}, got: {:?}", i, expected_result, actual_result);
+                },
+                Err(err) => {
+                    assert!(false, "case {} failed: error occurred: {}", i, err);
+                }
+            }
+        }
+        Ok(())
     }
 }
