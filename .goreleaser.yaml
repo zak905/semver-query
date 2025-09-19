@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+
+version: 2
+
+# Project name should ideally match the project name in your Cargo.toml.
+project_name: semver-query
+
+# Hooks ran before actually building anything.
+# Here we use them to prepare for building.
+before:
+  hooks:
+    - rustup default stable
+    - cargo install --locked cargo-zigbuild
+    - cargo fetch --locked
+
+# Actually builds the binaries.
+builds:
+  - builder: rust
+    targets:
+      - x86_64-apple-darwin
+      - x86_64-pc-windows-msvc
+      - x86_64-unknown-linux-gnu
+      - aarch64-apple-darwin
+      - aarch64-unknown-linux-gnu
+      - aarch64-pc-windows-msvc
+
+
+# Creates archives for each target.
+archives:
+  - format: tar.gz
+    # this name template makes the OS and Arch compatible with the results of `uname`.
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    # use zip for windows archives
+    format_overrides:
+      - goos: windows
+        format: zip
+
+# Changelog configuration (will be in the github release).
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+# Creates Darwin universal binaries.
+#universal_binaries:
+  #- replace: true
+
+# Enables source archives.
+source:
+  enabled: true
