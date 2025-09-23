@@ -2,6 +2,14 @@
 name = "semver-query"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+license-file = "LICENSE"
+description = "semantic versioning data query tool"
+homepage = "https://github.com/zak905/semver-query"
+repository = "https://github.com/zak905/semver-query"
+readme = "README.md"
+keywords = ["semantic versioning", "CLI", "util", "query"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 clap = { version = "4.5.48", features = ["derive"] }
