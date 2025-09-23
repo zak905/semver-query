@@ -1,4 +1,4 @@
-/// badges go here
+
 # semver-query
 
 ![semver-query](./semver-explanation.png)
