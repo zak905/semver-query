@@ -8,7 +8,7 @@ description = "semantic versioning data query tool"
 homepage = "https://github.com/zak905/semver-query"
 repository = "https://github.com/zak905/semver-query"
 readme = "README.md"
-keywords = ["semantic versioning", "CLI", "util", "query"]
+keywords = ["semantic-versioning", "CLI", "util", "query", "semver"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
