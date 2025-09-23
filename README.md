@@ -1,4 +1,4 @@
-
+<a href="https://crates.io/crates/semver-query"><img src="https://img.shields.io/crates/v/semver-query.svg?colorB=319e8c" alt="Version info"></a>
 # semver-query
 
 ![semver-query](./semver-explanation.png)
