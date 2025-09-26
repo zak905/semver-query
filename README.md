@@ -113,11 +113,11 @@ The supported logical operators are `and` and `or`.
 For each release, binaries are published for the following platforms: 
 
 - x86_64-apple-darwin
-- x86_64-pc-windows-msvc
 - x86_64-unknown-linux-gnu
 - aarch64-apple-darwin
 - aarch64-unknown-linux-gnu
-- aarch64-pc-windows-msvc
+
+Note to Windows users: sorry but I was not able compile the project for the platforms (x86_64-pc-windows-msvc, aarch64-pc-windows-msvc). Help is welcome. 
 
 The download link can be found in the release [page](https://github.com/zak905/semver-q/releases)
 
