@@ -17,6 +17,7 @@ Arguments:
 Options:
   -q, --query <query>  defines the query to apply to the input
       --strict         defines whether to fail if an entry does not match the semantic versioning regular pattern
+      --sort <sort>    defines the sort order of the result. none keeps the order of items as-is. [default: none] [possible values: asc, desc, none]
   -h, --help           Print help
   -V, --version        Print version
 ```

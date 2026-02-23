@@ -7,7 +7,6 @@ use clap::{Command, Arg, ArgAction, value_parser};
 
 pub mod semver;
 
-
 fn main() -> ExitCode {
     let matches = Command::new("semver-query")
         .about("utility for querying data that follows the semantic version format. It expects a list of line separated entries.")
@@ -26,6 +25,12 @@ fn main() -> ExitCode {
             default_value("true").
             action(ArgAction::SetTrue).
             required(false)
+        ).arg(
+            Arg::new("sort").
+            long("sort").
+            help("defines the sort order of the result. none keeps the order of items as-is.").
+            default_value("none").
+            value_parser(clap::builder::PossibleValuesParser::new([semver::ASCENDING_ORDER, semver::DESCENDING_ORDER, semver::NO_ORDER]))
         ).arg(
             Arg::new("filename").help("the input file name. It must contain line separated entries. \nIf not provided, the program attempts to read from the standard input.").required(false)
         ).get_matches();
@@ -56,7 +61,8 @@ fn main() -> ExitCode {
         };
 
 
-    match semver::query_semver(matches.get_one::<String>("query").unwrap(), input, *matches.get_one::<bool>("strict").unwrap()) {
+    match semver::query_semver(matches.get_one::<String>("query").unwrap(), input, 
+    *matches.get_one::<bool>("strict").unwrap(), matches.get_one::<String>("sort").unwrap()) {
     Ok(query_result) => {
         for res_item in query_result {
             println!("{}", res_item);
