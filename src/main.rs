@@ -3,6 +3,7 @@ use std::fs;
 use std::io::IsTerminal;
 use std::io::Write;
 use std::process::ExitCode;
+use std::str::FromStr;
 use clap::{Command, Arg, ArgAction, value_parser};
 
 pub mod semver;
@@ -62,7 +63,7 @@ fn main() -> ExitCode {
 
 
     match semver::query_semver(matches.get_one::<String>("query").unwrap(), input, 
-    *matches.get_one::<bool>("strict").unwrap(), matches.get_one::<String>("sort").unwrap()) {
+    *matches.get_one::<bool>("strict").unwrap(), semver::SortOrder::from_str(matches.get_one::<String>("sort").unwrap()).unwrap()) {
     Ok(query_result) => {
         for res_item in query_result {
             println!("{}", res_item);
