@@ -70,7 +70,7 @@ impl Eq for SemVer {}
 
 #[derive(Copy, Clone)]
 pub enum SortOrder {
-    ASCENDING,DESCENDING,NONE
+    Ascending,Descending,None
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -81,13 +81,13 @@ impl FromStr for SortOrder {
     fn from_str(order: &str) -> Result<Self, Self::Err> {
         match order {
             ASCENDING_ORDER => {
-                Ok(SortOrder::ASCENDING)
+                Ok(SortOrder::Ascending)
             }
             DESCENDING_ORDER => {
-                Ok(SortOrder::DESCENDING)
+                Ok(SortOrder::Descending)
             }
             NO_ORDER => {
-               Ok(SortOrder::NONE) 
+               Ok(SortOrder::None) 
             }
             _ => {
                 Err(ParseSortOrderError)
@@ -100,13 +100,13 @@ impl fmt::Display for SortOrder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let order: &str;
         match self {
-            SortOrder::ASCENDING => {
+            SortOrder::Ascending => {
                 order = ASCENDING_ORDER;
             }
-            SortOrder::DESCENDING => {
+            SortOrder::Descending => {
                 order = DESCENDING_ORDER;
             }
-            SortOrder::NONE => {
+            SortOrder::None => {
               order = NO_ORDER;
             }
         }
@@ -237,10 +237,10 @@ pub fn query_semver(query: &String, semver_entries: Vec<String>, strict: bool, s
     }
 
     match sort_order {
-         SortOrder::ASCENDING => {
+         SortOrder::Ascending => {
             parsed_sem_vers.sort();
         }
-         SortOrder::DESCENDING => {
+         SortOrder::Descending => {
             parsed_sem_vers.sort_by(|a, b| b.cmp(a));
         }
         _ => {}
@@ -420,7 +420,7 @@ mod tests {
         ];
         for i in 0..cases.len() {
             let input: Vec<String> = cases[i].static_input_data.iter().map(|x|String::from(*x)).collect();
-            match query_semver(&cases[i].query.to_string(), input, true, SortOrder::NONE) {
+            match query_semver(&cases[i].query.to_string(), input, true, SortOrder::None) {
                 Ok(_) => {
                     assert!(false, "case {} failed: error is expected for query: {}", i, cases[i].query)
                 },
@@ -456,7 +456,7 @@ mod tests {
         ];
         for i in 0..cases.len() {
             let input: Vec<String> = cases[i].static_input_data.iter().map(|x|String::from(*x)).collect();
-            match query_semver(&cases[i].query.to_string(), input, true, SortOrder::NONE) {
+            match query_semver(&cases[i].query.to_string(), input, true, SortOrder::None) {
                 Ok(_) => {
                     assert!(false, "case {} failed: error is expected for query: {}", i, cases[i].query)
                 },
@@ -480,7 +480,7 @@ mod tests {
             "major >= 17 and major <= 20 and patch > 1 and patch <= 3",
         ];
         for i in 0..queries.len() {
-            for order in [SortOrder::NONE, SortOrder::ASCENDING, SortOrder::DESCENDING] {
+            for order in [SortOrder::None, SortOrder::Ascending, SortOrder::Descending] {
                 let expectation_file = fs::read_to_string(format!("src/test_data/keycloak/case_{i}_expectation_{order}.txt"))?;
                 let expected_result: Vec<String> = expectation_file.lines().map(|ln|String::from(ln)).collect();
 
@@ -512,7 +512,7 @@ mod tests {
             "patch == 7",
         ];
         for i in 0..queries.len() {
-            for order in [SortOrder::NONE, SortOrder::ASCENDING, SortOrder::DESCENDING] {
+            for order in [SortOrder::None, SortOrder::Ascending, SortOrder::Descending] {
                 let expectation_file = fs::read_to_string(format!("src/test_data/kubernetes/case_{i}_expectation_{order}.txt"))?;
                 let expected_result: Vec<String> = expectation_file.lines().map(|ln|String::from(ln)).collect();
 
@@ -543,7 +543,7 @@ mod tests {
             "minor == 17 and patch > 0",
         ];
         for i in 0..queries.len() {
-            for order in [SortOrder::NONE, SortOrder::ASCENDING, SortOrder::DESCENDING] {
+            for order in [SortOrder::None, SortOrder::Ascending, SortOrder::Descending] {
                 let expectation_file = fs::read_to_string(format!("src/test_data/tensorflow/case_{i}_expectation_{order}.txt"))?;
                 let expected_result: Vec<String> = expectation_file.lines().map(|ln|String::from(ln)).collect();
 
