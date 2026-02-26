@@ -62,7 +62,7 @@ impl PartialEq for SemVer {
     fn eq(&self, other: &Self) -> bool {
         self.major == other.major && self.minor == other.minor &&
         self.patch == other.patch && 
-        self.pre_release.clone().unwrap_or(String::new()) == other.pre_release.clone().unwrap_or(String::new())
+        self.pre_release == other.pre_release
     }
 }
 
