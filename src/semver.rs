@@ -11,6 +11,14 @@ use regex::Regex;
 use luaparse::{parse};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value};
+use std::cmp::Ordering;
+use std::str::FromStr;
+
+
+pub const ASCENDING_ORDER: &str = "asc";
+pub const DESCENDING_ORDER: &str = "desc";
+pub const NO_ORDER: &str = "none";
+
 
 #[derive(Debug,Serialize, Deserialize)]
 struct SemVer {
@@ -20,6 +28,91 @@ struct SemVer {
     pre_release: Option<String>, 
     build_number: Option<String>,
     has_v_prefix: bool,
+}
+
+impl Ord for SemVer {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let core = self.major
+            .cmp(&other.major)
+            .then(self.minor.cmp(&other.minor))
+            .then(self.patch.cmp(&other.patch));
+
+        /////// done by copilot
+        if core != Ordering::Equal {
+            return core;
+        }
+
+         match (&self.pre_release, &other.pre_release) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Greater, // final > prerelease
+            (Some(_), None) => Ordering::Less,    // prerelease < final
+            (Some(a), Some(b)) => compare_prerelease(a, b),
+        }
+        ///////////
+    }
+}
+
+impl PartialOrd for SemVer {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for SemVer {
+    fn eq(&self, other: &Self) -> bool {
+        self.major == other.major && self.minor == other.minor &&
+        self.patch == other.patch && 
+        self.pre_release == other.pre_release
+    }
+}
+
+impl Eq for SemVer {}
+
+#[derive(Copy, Clone)]
+pub enum SortOrder {
+    Ascending,Descending,None
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParseSortOrderError;
+
+impl FromStr for SortOrder {
+    type Err = ParseSortOrderError;
+    fn from_str(order: &str) -> Result<Self, Self::Err> {
+        match order {
+            ASCENDING_ORDER => {
+                Ok(SortOrder::Ascending)
+            }
+            DESCENDING_ORDER => {
+                Ok(SortOrder::Descending)
+            }
+            NO_ORDER => {
+               Ok(SortOrder::None) 
+            }
+            _ => {
+                Err(ParseSortOrderError)
+            }
+        }
+    }
+}
+
+impl fmt::Display for SortOrder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let order: &str;
+        match self {
+            SortOrder::Ascending => {
+                order = ASCENDING_ORDER;
+            }
+            SortOrder::Descending => {
+                order = DESCENDING_ORDER;
+            }
+            SortOrder::None => {
+              order = NO_ORDER;
+            }
+        }
+
+        write!(f, "{}", order)
+    }
 }
 
 #[derive(Debug)]
@@ -69,7 +162,49 @@ impl QueryTraversalResult {
     }
 }
 
-pub fn query_semver(query: &String, semver_entries: Vec<String>, strict: bool) -> Result<Vec<String>, Box<dyn Error>> {
+// function written by copilot
+fn is_numeric_identifier(identifier: &str) -> bool {
+    !identifier.is_empty() && identifier.chars().all(|c| c.is_ascii_digit())
+}
+
+// function written by copilot
+fn compare_prerelease(a: &str, b: &str) -> Ordering {
+    let a_parts: Vec<&str> = a.split('.').collect();
+    let b_parts: Vec<&str> = b.split('.').collect();
+    for (a_part, b_part) in a_parts.iter().zip(b_parts.iter()) {
+        let a_is_num = is_numeric_identifier(a_part);
+        let b_is_num = is_numeric_identifier(b_part);
+        match (a_is_num, b_is_num) {
+            (true, true) => {
+                // Both numeric: compare by numeric value
+                let a_num = a_part.parse::<u64>().unwrap_or(0);
+                let b_num = b_part.parse::<u64>().unwrap_or(0);
+                let ord = a_num.cmp(&b_num);
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+            }
+            (true, false) => {
+                // Numeric identifiers have lower precedence than non-numeric
+                return Ordering::Less;
+            }
+            (false, true) => {
+                return Ordering::Greater;
+            }
+            (false, false) => {
+                let ord = a_part.cmp(b_part);
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+            }
+        }
+    }
+    // All shared identifiers equal; shorter prerelease has lower precedence
+    a_parts.len().cmp(&b_parts.len())
+}
+
+
+pub fn query_semver(query: &String, semver_entries: Vec<String>, strict: bool, sort_order: SortOrder) -> Result<Vec<String>, Box<dyn Error>> {
     // source: https://github.com/semver/semver/blob/master/semver.md?plain=1#L346
     let semver_regex = Regex::new(r"^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$")?;
 
@@ -99,6 +234,16 @@ pub fn query_semver(query: &String, semver_entries: Vec<String>, strict: bool) -
             build_number: captures.name("buildmetadata").map(|m|m.as_str().to_string()),
             has_v_prefix: has_v_prefix,
         });
+    }
+
+    match sort_order {
+         SortOrder::Ascending => {
+            parsed_sem_vers.sort();
+        }
+         SortOrder::Descending => {
+            parsed_sem_vers.sort_by(|a, b| b.cmp(a));
+        }
+        _ => {}
     }
 
 
@@ -252,7 +397,6 @@ mod tests {
         error_message: Option<&'static str>,
     }
 
-
     #[test]
     fn invalid_query_returns_error() {
         let input_data = "0.1.1";
@@ -276,7 +420,7 @@ mod tests {
         ];
         for i in 0..cases.len() {
             let input: Vec<String> = cases[i].static_input_data.iter().map(|x|String::from(*x)).collect();
-            match query_semver(&cases[i].query.to_string(), input, true) {
+            match query_semver(&cases[i].query.to_string(), input, true, SortOrder::None) {
                 Ok(_) => {
                     assert!(false, "case {} failed: error is expected for query: {}", i, cases[i].query)
                 },
@@ -312,7 +456,7 @@ mod tests {
         ];
         for i in 0..cases.len() {
             let input: Vec<String> = cases[i].static_input_data.iter().map(|x|String::from(*x)).collect();
-            match query_semver(&cases[i].query.to_string(), input, true) {
+            match query_semver(&cases[i].query.to_string(), input, true, SortOrder::None) {
                 Ok(_) => {
                     assert!(false, "case {} failed: error is expected for query: {}", i, cases[i].query)
                 },
@@ -336,18 +480,21 @@ mod tests {
             "major >= 17 and major <= 20 and patch > 1 and patch <= 3",
         ];
         for i in 0..queries.len() {
-            let expectation_file = fs::read_to_string(format!("src/test_data/keycloak/case_{i}_expectation.txt"))?;
-            let expected_result: Vec<String> = expectation_file.lines().map(|ln|String::from(ln)).collect();
+            for order in [SortOrder::None, SortOrder::Ascending, SortOrder::Descending] {
+                let expectation_file = fs::read_to_string(format!("src/test_data/keycloak/case_{i}_expectation_{order}.txt"))?;
+                let expected_result: Vec<String> = expectation_file.lines().map(|ln|String::from(ln)).collect();
 
-            match query_semver(&String::from(queries[i]),
-            input_set.clone(), true) {
-                Ok(actual_result) => {
-                    assert_eq!(actual_result, expected_result, "case {} failed: expected: {:?}, got: {:?}", i, expected_result, actual_result);
-                },
-                Err(err) => {
-                    assert!(false, "case {} failed: error occurred: {}", i, err);
+                match query_semver(&String::from(queries[i]),
+                input_set.clone(), true, order) {
+                    Ok(actual_result) => {
+                        assert_eq!(actual_result, expected_result, "case {} failed (sort: {}): expected: {:?}, got: {:?}", i, order, expected_result, actual_result);
+                        //assert!(actual_result.is_sorted())
+                    },
+                    Err(err) => {
+                        assert!(false, "case {} failed: error occurred: {}", i, err);
+                    }
                 }
-            }
+          }
         }
         Ok(())
     }
@@ -365,16 +512,19 @@ mod tests {
             "patch == 7",
         ];
         for i in 0..queries.len() {
-            let expectation_file = fs::read_to_string(format!("src/test_data/kubernetes/case_{i}_expectation.txt"))?;
-            let expected_result: Vec<String> = expectation_file.lines().map(|ln|String::from(ln)).collect();
+            for order in [SortOrder::None, SortOrder::Ascending, SortOrder::Descending] {
+                let expectation_file = fs::read_to_string(format!("src/test_data/kubernetes/case_{i}_expectation_{order}.txt"))?;
+                let expected_result: Vec<String> = expectation_file.lines().map(|ln|String::from(ln)).collect();
 
-            match query_semver(&String::from(queries[i]),
-            input_set.clone(), true) {
-                Ok(actual_result) => {
-                    assert_eq!(actual_result, expected_result, "case {} failed: expected: {:?}, got: {:?}", i, expected_result, actual_result);
-                },
-                Err(err) => {
-                    assert!(false, "case {} failed: error occurred: {}", i, err);
+                match query_semver(&String::from(queries[i]),
+                input_set.clone(), true, order) {
+                    Ok(actual_result) => {
+                        assert_eq!(actual_result, expected_result, "case {} failed (sort: {}): expected: {:?}, got: {:?}", i, order, 
+                        expected_result, actual_result);
+                    },
+                    Err(err) => {
+                        assert!(false, "case {} failed: error occurred: {}", i, err);
+                    }
                 }
             }
         }
@@ -393,16 +543,18 @@ mod tests {
             "minor == 17 and patch > 0",
         ];
         for i in 0..queries.len() {
-            let expectation_file = fs::read_to_string(format!("src/test_data/tensorflow/case_{i}_expectation.txt"))?;
-            let expected_result: Vec<String> = expectation_file.lines().map(|ln|String::from(ln)).collect();
+            for order in [SortOrder::None, SortOrder::Ascending, SortOrder::Descending] {
+                let expectation_file = fs::read_to_string(format!("src/test_data/tensorflow/case_{i}_expectation_{order}.txt"))?;
+                let expected_result: Vec<String> = expectation_file.lines().map(|ln|String::from(ln)).collect();
 
-            match query_semver(&String::from(queries[i]),
-            input_set.clone(), true) {
-                Ok(actual_result) => {
-                    assert_eq!(actual_result, expected_result, "case {} failed: expected: {:?}, got: {:?}", i, expected_result, actual_result);
-                },
-                Err(err) => {
-                    assert!(false, "case {} failed: error occurred: {}", i, err);
+                match query_semver(&String::from(queries[i]),
+                input_set.clone(), true, order) {
+                    Ok(actual_result) => {
+                        assert_eq!(actual_result, expected_result, "case {} failed (sort: {}): expected: {:?}, got: {:?}", i, order, expected_result, actual_result);
+                    },
+                    Err(err) => {
+                        assert!(false, "case {} failed: error occurred: {}", i, err);
+                    }
                 }
             }
         }
