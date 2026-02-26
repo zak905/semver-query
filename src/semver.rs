@@ -32,11 +32,23 @@ struct SemVer {
 
 impl Ord for SemVer {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.major
+        let core = self.major
             .cmp(&other.major)
             .then(self.minor.cmp(&other.minor))
-            .then(self.patch.cmp(&other.patch))
-            .then(self.pre_release.cmp(&other.pre_release))
+            .then(self.patch.cmp(&other.patch));
+
+        /////// done by copilot
+        if core != Ordering::Equal {
+            return core;
+        }
+
+         match (&self.pre_release, &other.pre_release) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Greater, // final > prerelease
+            (Some(_), None) => Ordering::Less,    // prerelease < final
+            (Some(a), Some(b)) => compare_prerelease(a, b),
+        }
+        ///////////
     }
 }
 
@@ -49,8 +61,8 @@ impl PartialOrd for SemVer {
 impl PartialEq for SemVer {
     fn eq(&self, other: &Self) -> bool {
         self.major == other.major && self.minor == other.minor &&
-        self.patch == other.patch && self.pre_release == other.pre_release
-        && self.build_number == other.build_number
+        self.patch == other.patch && 
+        self.pre_release.clone().unwrap_or(String::new()) == other.pre_release.clone().unwrap_or(String::new())
     }
 }
 
@@ -149,6 +161,48 @@ impl QueryTraversalResult {
         }
     }
 }
+
+// function written by copilot
+fn is_numeric_identifier(identifier: &str) -> bool {
+    !identifier.is_empty() && identifier.chars().all(|c| c.is_ascii_digit())
+}
+
+// function written by copilot
+fn compare_prerelease(a: &str, b: &str) -> Ordering {
+    let a_parts: Vec<&str> = a.split('.').collect();
+    let b_parts: Vec<&str> = b.split('.').collect();
+    for (a_part, b_part) in a_parts.iter().zip(b_parts.iter()) {
+        let a_is_num = is_numeric_identifier(a_part);
+        let b_is_num = is_numeric_identifier(b_part);
+        match (a_is_num, b_is_num) {
+            (true, true) => {
+                // Both numeric: compare by numeric value
+                let a_num = a_part.parse::<u64>().unwrap_or(0);
+                let b_num = b_part.parse::<u64>().unwrap_or(0);
+                let ord = a_num.cmp(&b_num);
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+            }
+            (true, false) => {
+                // Numeric identifiers have lower precedence than non-numeric
+                return Ordering::Less;
+            }
+            (false, true) => {
+                return Ordering::Greater;
+            }
+            (false, false) => {
+                let ord = a_part.cmp(b_part);
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+            }
+        }
+    }
+    // All shared identifiers equal; shorter prerelease has lower precedence
+    a_parts.len().cmp(&b_parts.len())
+}
+
 
 pub fn query_semver(query: &String, semver_entries: Vec<String>, strict: bool, sort_order: SortOrder) -> Result<Vec<String>, Box<dyn Error>> {
     // source: https://github.com/semver/semver/blob/master/semver.md?plain=1#L346
