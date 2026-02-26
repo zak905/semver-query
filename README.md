@@ -103,6 +103,32 @@ The supported logical operators are `and` and `or`.
 * `minor == 29 and pre_release ~= 'alpha.0' and pre_release ~= 'alpha.1' and pre_release ~= 'alpha.2' and pre_release ~= 'alpha.3'`
 * `major >= 17 and major <= 20 and patch > 1 and patch <= 3`
 
+## Sorting
+
+When using the `--sort` flag, the sorting is done following the precedence rules specified in the official semver v2 specifications: https://semver.org/#spec-item-11
+
+> Precedence MUST be calculated by separating the version into major, minor, patch and pre-release identifiers in that order (build metadata does not figure into precedence).
+>
+>Precedence is determined by the first difference when comparing each of these identifiers from left to right as follows: major, minor, and patch versions are always compared numerically.
+>
+>Example: 1.0.0 < 2.0.0 < 2.1.0 < 2.1.1.
+>
+>When major, minor, and patch are equal, a pre-release version has lower precedence than a normal version:
+>
+>Example: 1.0.0-alpha < 1.0.0.
+>
+>Precedence for two pre-release versions with the same major, minor, and patch version MUST be determined by comparing each dot separated identifier from left to right until a difference is found as follows:
+>
+>Identifiers consisting of only digits are compared numerically.
+>
+>Identifiers with letters or hyphens are compared lexically in ASCII sort order.
+>
+>Numeric identifiers always have lower precedence than non-numeric identifiers.
+>
+>A larger set of pre-release fields has a higher precedence than a smaller set, if all of the preceding identifiers are equal.
+>
+>Example: 1.0.0-alpha < 1.0.0-alpha.1 < 1.0.0-alpha.beta < 1.0.0-beta < 1.0.0-beta.2 < 1.0.0-beta.11 < 1.0.0-rc.1 < 1.0.0.
+
 ## Installation
 
 ### Cargo
@@ -128,7 +154,6 @@ the project can be built using `cargo build -r`, after cloning the repository.
 
 ## Work in progress:
 
-* Sorting
 * Limits
 * Pattern matching
 * Output delimiters 
