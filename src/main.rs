@@ -11,7 +11,7 @@ pub mod semver;
 fn main() -> ExitCode {
     let matches = Command::new("semver-query")
         .about("utility for querying data that follows the semantic version format. It expects a list of line separated entries.")
-        .version("0.0.1")
+        .version(env!("CARGO_PKG_VERSION"))
         .arg(
             Arg::new("query").
             short('q').
@@ -32,6 +32,13 @@ fn main() -> ExitCode {
             help("defines the sort order of the result. none keeps the order of items as-is.").
             default_value("none").
             value_parser(clap::builder::PossibleValuesParser::new([semver::ASCENDING_ORDER, semver::DESCENDING_ORDER, semver::NO_ORDER]))
+        ).arg(
+            Arg::new("limit").
+            long("limit").
+            short('l').
+            help("limits the results size. 0 means no limit.").
+            default_value("0").
+            value_parser(value_parser!(usize))
         ).arg(
             Arg::new("filename").help("the input file name. It must contain line separated entries. \nIf not provided, the program attempts to read from the standard input.").required(false)
         ).get_matches();
@@ -63,7 +70,8 @@ fn main() -> ExitCode {
 
 
     match semver::query_semver(matches.get_one::<String>("query").unwrap(), input, 
-    *matches.get_one::<bool>("strict").unwrap(), semver::SortOrder::from_str(matches.get_one::<String>("sort").unwrap()).unwrap()) {
+    *matches.get_one::<bool>("strict").unwrap(), semver::SortOrder::from_str(matches.get_one::<String>("sort").unwrap()).unwrap(),
+*matches.get_one::<usize>("limit").unwrap()) {
     Ok(query_result) => {
         for res_item in query_result {
             println!("{}", res_item);
