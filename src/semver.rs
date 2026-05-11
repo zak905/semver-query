@@ -280,7 +280,7 @@ end
                         res_json.truncate(limit);
                     }
                     let mut final_result: Vec<String> = Vec::new();
-                    for val in res_json{
+                    for val in res_json {
                         final_result.push(serde_json::from_value::<SemVer>(val)?.to_string());
                     }
 
@@ -390,7 +390,7 @@ fn comparator_to_jsonpath_string(smbl: luaparse::token::Symbol) -> &'static str 
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, fs};
+    use std::{fs};
 
     use super::*;
 
