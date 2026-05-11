@@ -204,7 +204,7 @@ fn compare_prerelease(a: &str, b: &str) -> Ordering {
 }
 
 
-pub fn query_semver(query: &String, semver_entries: Vec<String>, strict: bool, sort_order: SortOrder) -> Result<Vec<String>, Box<dyn Error>> {
+pub fn query_semver(query: &String, semver_entries: Vec<String>, strict: bool, sort_order: SortOrder, limit: usize) -> Result<Vec<String>, Box<dyn Error>> {
     // source: https://github.com/semver/semver/blob/master/semver.md?plain=1#L346
     let semver_regex = Regex::new(r"^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$")?;
 
@@ -274,10 +274,13 @@ end
                     let jsonpath_query = convert_to_jsonpath_syntax(&traversal_result);
                     // Parse the string of data into serde_json::Value.
                     let json = serde_json::to_string(&parsed_sem_vers)?;
-                    let v: Value = serde_json::from_str(json.as_str())?;  
-                    let res_json: Vec<Value> =  v.query(jsonpath_query.as_str())?.iter().map(|v| (*v).clone()).collect();
+                    let v: Value = serde_json::from_str(json.as_str())?;
+                    let mut res_json: Vec<Value> =  v.query(jsonpath_query.as_str())?.iter().map(|v| (*v).clone()).collect();
+                    if limit != 0 {
+                        res_json.truncate(limit);
+                    }
                     let mut final_result: Vec<String> = Vec::new();
-                    for val in res_json {
+                    for val in res_json{
                         final_result.push(serde_json::from_value::<SemVer>(val)?.to_string());
                     }
 
@@ -387,7 +390,7 @@ fn comparator_to_jsonpath_string(smbl: luaparse::token::Symbol) -> &'static str 
 #[cfg(test)]
 mod tests {
 
-    use std::{fs};
+    use std::{collections::HashMap, fs};
 
     use super::*;
 
@@ -420,7 +423,7 @@ mod tests {
         ];
         for i in 0..cases.len() {
             let input: Vec<String> = cases[i].static_input_data.iter().map(|x|String::from(*x)).collect();
-            match query_semver(&cases[i].query.to_string(), input, true, SortOrder::None) {
+            match query_semver(&cases[i].query.to_string(), input, true, SortOrder::None, 0) {
                 Ok(_) => {
                     assert!(false, "case {} failed: error is expected for query: {}", i, cases[i].query)
                 },
@@ -456,7 +459,7 @@ mod tests {
         ];
         for i in 0..cases.len() {
             let input: Vec<String> = cases[i].static_input_data.iter().map(|x|String::from(*x)).collect();
-            match query_semver(&cases[i].query.to_string(), input, true, SortOrder::None) {
+            match query_semver(&cases[i].query.to_string(), input, true, SortOrder::None, 0) {
                 Ok(_) => {
                     assert!(false, "case {} failed: error is expected for query: {}", i, cases[i].query)
                 },
@@ -485,7 +488,7 @@ mod tests {
                 let expected_result: Vec<String> = expectation_file.lines().map(|ln|String::from(ln)).collect();
 
                 match query_semver(&String::from(queries[i]),
-                input_set.clone(), true, order) {
+                input_set.clone(), true, order, 0) {
                     Ok(actual_result) => {
                         assert_eq!(actual_result, expected_result, "case {} failed (sort: {}): expected: {:?}, got: {:?}", i, order, expected_result, actual_result);
                         //assert!(actual_result.is_sorted())
@@ -517,7 +520,7 @@ mod tests {
                 let expected_result: Vec<String> = expectation_file.lines().map(|ln|String::from(ln)).collect();
 
                 match query_semver(&String::from(queries[i]),
-                input_set.clone(), true, order) {
+                input_set.clone(), true, order, 0) {
                     Ok(actual_result) => {
                         assert_eq!(actual_result, expected_result, "case {} failed (sort: {}): expected: {:?}, got: {:?}", i, order, 
                         expected_result, actual_result);
@@ -548,7 +551,7 @@ mod tests {
                 let expected_result: Vec<String> = expectation_file.lines().map(|ln|String::from(ln)).collect();
 
                 match query_semver(&String::from(queries[i]),
-                input_set.clone(), true, order) {
+                input_set.clone(), true, order, 0) {
                     Ok(actual_result) => {
                         assert_eq!(actual_result, expected_result, "case {} failed (sort: {}): expected: {:?}, got: {:?}", i, order, expected_result, actual_result);
                     },
@@ -556,6 +559,27 @@ mod tests {
                         assert!(false, "case {} failed: error occurred: {}", i, err);
                     }
                 }
+            }
+        }
+        Ok(())
+    }
+
+       #[test]
+    fn with_limit() -> Result<(), Box<dyn Error>>{
+      let input_data  = fs::read_to_string("src/test_data/kubernetes/input.txt")?;
+      let input_set: Vec<String> = input_data.lines().map(|ln|String::from(ln)).collect();
+
+        let limits = vec![10, 5, 13, 7, 16];
+        for i in 0..limits.len() {
+            let expected_limit = limits[i];
+                match query_semver(&String::from("major == 1"),
+                input_set.clone(), true, SortOrder::None, expected_limit) {
+                    Ok(actual_result) => {
+                        assert_eq!(actual_result.len(), limits[i], "case {} failed: expected result size: {}, got: {}", i, actual_result.len(), limits[i]);
+                    },
+                    Err(err) => {
+                        assert!(false, "case {} failed: error occurred: {}", i, err);
+                    }
             }
         }
         Ok(())
