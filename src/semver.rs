@@ -575,7 +575,7 @@ mod tests {
                 match query_semver(&String::from("major == 1"),
                 input_set.clone(), true, SortOrder::None, expected_limit) {
                     Ok(actual_result) => {
-                        assert_eq!(actual_result.len(), limits[i], "case {} failed: expected result size: {}, got: {}", i, actual_result.len(), limits[i]);
+                        assert_eq!(actual_result.len(), limits[i], "case {} failed: expected result size: {}, got: {}", i, limits[i], actual_result.len());
                     },
                     Err(err) => {
                         assert!(false, "case {} failed: error occurred: {}", i, err);

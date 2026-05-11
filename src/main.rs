@@ -36,7 +36,8 @@ fn main() -> ExitCode {
             Arg::new("limit").
             long("limit").
             short('l').
-            help("limits the results size").
+            help("limits the results size. 0 means no limit.").
+            default_value("0").
             value_parser(value_parser!(usize))
         ).arg(
             Arg::new("filename").help("the input file name. It must contain line separated entries. \nIf not provided, the program attempts to read from the standard input.").required(false)
