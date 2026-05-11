@@ -18,6 +18,7 @@ Options:
   -q, --query <query>  defines the query to apply to the input
       --strict         defines whether to fail if an entry does not match the semantic versioning regular pattern
       --sort <sort>    defines the sort order of the result. none keeps the order of items as-is. [default: none] [possible values: asc, desc, none]
+  -l, --limit <limit>  limits the results size. 0 means no limit. [default: 0]
   -h, --help           Print help
   -V, --version        Print version
 ```
@@ -154,6 +155,5 @@ the project can be built using `cargo build -r`, after cloning the repository.
 
 ## Work in progress:
 
-* Limits
 * Pattern matching
 * Output delimiters 
