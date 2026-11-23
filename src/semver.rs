@@ -273,13 +273,20 @@ end
                         Some(condition) if errors.is_empty() => condition,
                         _ => return Err(Box::new(io::Error::new(io::ErrorKind::InvalidInput, format!("error parsing query: {:?}", errors)))),
                     };
-                    let mut final_result: Vec<String> = parsed_sem_vers
+                    let final_result: Vec<String>; 
+                    let filtered = parsed_sem_vers
                         .iter()
-                        .filter(|sem_ver| evaluate(&condition, sem_ver))
+                        .filter(|sem_ver| evaluate(&condition, sem_ver));
+
+                    if limit != 0 {
+                        final_result = filtered.take(limit)
                         .map(|sem_ver| sem_ver.to_string())
                         .collect();
-                    if limit != 0 {
-                        final_result.truncate(limit);
+                        //final_result.truncate(limit);
+                    } else {
+                        final_result = filtered
+                        .map(|sem_ver| sem_ver.to_string())
+                        .collect();
                     }
 
                     return Ok(final_result);
