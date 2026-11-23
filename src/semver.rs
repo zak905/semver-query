@@ -1,16 +1,13 @@
 
 use std::{fmt::Debug, io};
 use std::fmt;
-use jsonpath_rust::JsonPath;
-use luaparse::ast::Expr;
+use luaparse::ast::{BinOpExpr, Expr, Name, NumberLit, PrefixExpr, StringLit, Var};
 use luaparse::ast::Statement::If;
-use luaparse::token::Symbol as symb;
+use luaparse::token::{NumberLiteral, Symbol as symb, TokenValue};
 use luaparse::token::TokenValue::Symbol;
 use std::error::Error;
 use regex::Regex;
 use luaparse::{parse};
-use serde::{Deserialize, Serialize};
-use serde_json::{Value};
 use std::cmp::Ordering;
 use std::str::FromStr;
 
@@ -20,7 +17,7 @@ pub const DESCENDING_ORDER: &str = "desc";
 pub const NO_ORDER: &str = "none";
 
 
-#[derive(Debug,Serialize, Deserialize)]
+#[derive(Debug)]
 struct SemVer {
     major: u16,
     minor: u16,
@@ -115,13 +112,32 @@ impl fmt::Display for SortOrder {
     }
 }
 
+/// A parsed query condition, evaluated directly against each `SemVer`.
 #[derive(Debug)]
-struct QueryTraversalResult {
-    identifiers: Vec<String>,
-    comparators: Vec<luaparse::token::Symbol>,
-    literals: Vec<String>,
-    connectors: Vec<luaparse::token::Symbol>,
-    errors: Vec<String>,
+enum Condition {
+    Compare { field: Field, op: symb, literal: Literal },
+    And(Box<Condition>, Box<Condition>),
+    Or(Box<Condition>, Box<Condition>),
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Field {
+    Major,
+    Minor,
+    Patch,
+    PreRelease,
+    BuildNumber,
+}
+
+#[derive(Debug)]
+enum Literal {
+    Number(f64),
+    String(Vec<u8>),
+}
+
+enum FieldValue<'a> {
+    Number(f64),
+    Text(&'a str),
 }
 
 impl fmt::Display for SemVer {
@@ -147,18 +163,6 @@ impl fmt::Display for SemVer {
         }
 
         write!(f, "{}", sem_ver)
-    }
-}
-
-impl QueryTraversalResult {
-    pub fn new() -> QueryTraversalResult {
-        QueryTraversalResult {
-            identifiers: Vec::new(),
-            comparators: Vec::new(),
-            literals: Vec::new(),
-            connectors: Vec::new(), 
-            errors: Vec::new(),
-        }
     }
 }
 
@@ -264,24 +268,25 @@ end
             //println!("statement length: {}", block.statements.len());
             match block.statements[5].clone() {
                 If(if_statement) => {
-                    //println!("the condition: {:?}", if_statement.condition);
-                    let mut traversal_result = QueryTraversalResult::new();
-                    traverse_bin_op_expression(if_statement.condition, &mut traversal_result);
-                    if traversal_result.errors.len() > 0 {
-                        return Err(Box::new(io::Error::new(io::ErrorKind::InvalidInput, format!("error parsing query: {:?}", traversal_result.errors))));
-                    }
-                    // TODO: add an additional check here on variable names: only major, minor, patch are supported for now
-                    let jsonpath_query = convert_to_jsonpath_syntax(&traversal_result);
-                    // Parse the string of data into serde_json::Value.
-                    let json = serde_json::to_string(&parsed_sem_vers)?;
-                    let v: Value = serde_json::from_str(json.as_str())?;
-                    let mut res_json: Vec<Value> =  v.query(jsonpath_query.as_str())?.iter().map(|v| (*v).clone()).collect();
+                    let mut errors: Vec<String> = Vec::new();
+                    let condition = match parse_condition(&if_statement.condition, &mut errors) {
+                        Some(condition) if errors.is_empty() => condition,
+                        _ => return Err(Box::new(io::Error::new(io::ErrorKind::InvalidInput, format!("error parsing query: {:?}", errors)))),
+                    };
+                    let final_result: Vec<String>; 
+                    let filtered = parsed_sem_vers
+                        .iter()
+                        .filter(|sem_ver| evaluate(&condition, sem_ver));
+
                     if limit != 0 {
-                        res_json.truncate(limit);
-                    }
-                    let mut final_result: Vec<String> = Vec::new();
-                    for val in res_json {
-                        final_result.push(serde_json::from_value::<SemVer>(val)?.to_string());
+                        final_result = filtered.take(limit)
+                        .map(|sem_ver| sem_ver.to_string())
+                        .collect();
+                        //final_result.truncate(limit);
+                    } else {
+                        final_result = filtered
+                        .map(|sem_ver| sem_ver.to_string())
+                        .collect();
                     }
 
                     return Ok(final_result);
@@ -300,91 +305,137 @@ end
 }
 
 
-fn traverse_bin_op_expression(node: Expr, traversal_result: &mut QueryTraversalResult)  {
-    match node {
-        Expr::BinOp(binop_expr) => {
-              if let Expr::BinOp(_) = *binop_expr.left {
-                match binop_expr.op.0.token.value.clone() {
-                    Symbol(luaparse::token::Symbol::And) => {traversal_result.connectors.push(luaparse::token::Symbol::And)},
-                    Symbol(luaparse::token::Symbol::Or) => {traversal_result.connectors.push(luaparse::token::Symbol::Or)},
-                    x => {traversal_result.errors.push(format!("unsupported logical operator {:?}, only and/or are supported", x))}
-                }
-                
-                match *binop_expr.right {
-                    Expr::BinOp(_) => {}
-                    _ => {
-                      traversal_result.errors.push(format!("invalid expression {}", binop_expr.right.to_string()));
-                    }
-                }
-              } else {
-                match binop_expr.op.0.token.value.clone() {
-                    Symbol(luaparse::token::Symbol::Greater) => {traversal_result.comparators.push(luaparse::token::Symbol::Greater)},
-                    Symbol(luaparse::token::Symbol::GreaterEqual) => {traversal_result.comparators.push(luaparse::token::Symbol::GreaterEqual)},
-                    Symbol(luaparse::token::Symbol::Less) => {traversal_result.comparators.push(luaparse::token::Symbol::Less)},
-                    Symbol(luaparse::token::Symbol::LessEqual) => {traversal_result.comparators.push(luaparse::token::Symbol::LessEqual)},
-                    Symbol(luaparse::token::Symbol::Equal) => {traversal_result.comparators.push(luaparse::token::Symbol::Equal)},
-                    Symbol(luaparse::token::Symbol::NotEqual) => {traversal_result.comparators.push(luaparse::token::Symbol::NotEqual)},
-                    Symbol(any) => {traversal_result.errors.push(format!("unsupported operator {}, only >, >=, <, <=, ==, ~= are supported", symb::to_string(&any)))}
-                    _ => {traversal_result.errors.push(String::from("invalid syntax"))}
-                }
-              }
+/// Builds a `Condition` from the Lua AST of the query, collecting errors into `errors`.
+fn parse_condition(node: &Expr, errors: &mut Vec<String>) -> Option<Condition> {
+    if let Expr::Prefix(PrefixExpr::Parenthesized(parenthesized)) = node {
+        return parse_condition(&parenthesized.expr, errors);
+    }
 
-            traverse_bin_op_expression(*binop_expr.clone().left, traversal_result);
-            traverse_bin_op_expression(*binop_expr.clone().right, traversal_result);
-        }
-        Expr::Prefix(prefix_exp) => {
-            traversal_result.identifiers.push(prefix_exp.to_string())
-        }
-        Expr::Number(number_lit) => {
-            traversal_result.literals.push(number_lit.to_string())
-        }
-        Expr::String(string) => {
-            traversal_result.literals.push(string.to_string())
-        }
+    let Expr::BinOp(binop) = node else {
+        errors.push(format!("invalid expression {}", node.to_string()));
+        return None;
+    };
+
+    let symbol = match &binop.op.0.token.value {
+        Symbol(symbol) => *symbol,
         _ => {
-
+            errors.push(String::from("invalid syntax"));
+            return None;
         }
-    }
-}
+    };
 
-
-fn convert_to_jsonpath_syntax(traversal_result: &QueryTraversalResult) -> String {
-    let mut jsonpath_query = String::from("$[?");
-
-    for i in 0..traversal_result.identifiers.len() {
-        jsonpath_query.push_str("@.");
-        jsonpath_query.push_str(traversal_result.identifiers[i].as_str());
-        jsonpath_query.push_str(" ");
-        jsonpath_query.push_str(comparator_to_jsonpath_string(traversal_result.comparators[i]));
-        jsonpath_query.push_str(" ");
-        jsonpath_query.push_str(traversal_result.literals[i].as_str());
-        if i != traversal_result.identifiers.len() -1 {
-            jsonpath_query.push_str(" ");
-            jsonpath_query.push_str(lua_boolean_operator_to_jsonpath_string(traversal_result.connectors[i]));
-            jsonpath_query.push_str(" ");
-        }
-    }
-
-    jsonpath_query.push_str("]");
-    jsonpath_query
-}
-
-fn lua_boolean_operator_to_jsonpath_string(symbol: luaparse::token::Symbol) -> &'static str {
     match symbol {
-        luaparse::token::Symbol::And => {"&&"}
-        luaparse::token::Symbol::Or => {"||"}
-        _ => {"unknown"}
+        symb::And | symb::Or => {
+            let left = parse_condition(&binop.left, errors);
+            let right = parse_condition(&binop.right, errors);
+            let (left, right) = (left?, right?);
+            Some(if symbol == symb::And {
+                Condition::And(Box::new(left), Box::new(right))
+            } else {
+                Condition::Or(Box::new(left), Box::new(right))
+            })
+        }
+        symb::Greater | symb::GreaterEqual | symb::Less | symb::LessEqual | symb::Equal | symb::NotEqual => {
+            parse_comparison(node, binop, symbol, errors)
+        }
+        other => {
+            errors.push(format!("unsupported operator {}, only >, >=, <, <=, ==, ~= are supported", symb::to_string(&other)));
+            None
+        }
     }
-} 
-
-fn comparator_to_jsonpath_string(smbl: luaparse::token::Symbol) -> &'static str {
-    if smbl == luaparse::token::Symbol::NotEqual {
-        return "!="
-    }
-
-    return smbl.as_str()
 }
 
+/// Builds a `Condition::Compare` from `<identifier> <op> <literal>`.
+fn parse_comparison(node: &Expr, binop: &BinOpExpr, op: symb, errors: &mut Vec<String>) -> Option<Condition> {
+    let Some(name) = identifier_name(&binop.left) else {
+        errors.push(format!("invalid expression {}", node.to_string()));
+        return None;
+    };
+    let Some(field) = Field::from_name(name) else {
+        errors.push(format!("unsupported identifier `{}`, only major, minor, patch, pre_release and build_number are supported", name));
+        return None;
+    };
+    let Some(literal) = literal_value(&binop.right) else {
+        errors.push(format!("invalid expression {}", node.to_string()));
+        return None;
+    };
+    Some(Condition::Compare { field, op, literal })
+}
+
+fn identifier_name<'a>(node: &Expr<'a>) -> Option<&'a str> {
+    match node {
+        Expr::Prefix(PrefixExpr::Var(Var::Name(Name(reference)))) => match reference.token.value {
+            TokenValue::Ident(name) => Some(name),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn literal_value(node: &Expr) -> Option<Literal> {
+    match node {
+        Expr::Number(NumberLit(reference)) => match &reference.token.value {
+            TokenValue::Number(NumberLiteral::Integer(value)) => Some(Literal::Number(*value as f64)),
+            TokenValue::Number(NumberLiteral::Float(value)) => Some(Literal::Number(*value)),
+            _ => None,
+        },
+        Expr::String(StringLit(reference)) => match &reference.token.value {
+            TokenValue::String { value, .. } => Some(Literal::String(value.to_vec())),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn evaluate(condition: &Condition, sem_ver: &SemVer) -> bool {
+    match condition {
+        Condition::And(left, right) => evaluate(left, sem_ver) && evaluate(right, sem_ver),
+        Condition::Or(left, right) => evaluate(left, sem_ver) || evaluate(right, sem_ver),
+        Condition::Compare { field, op, literal } => {
+            let ordering = match (field.value_of(sem_ver), literal) {
+                (Some(FieldValue::Number(value)), Literal::Number(expected)) => value.partial_cmp(expected),
+                (Some(FieldValue::Text(value)), Literal::String(expected)) => Some(value.as_bytes().cmp(expected.as_slice())),
+                // a missing field or a type mismatch is never equal and never ordered
+                _ => None,
+            };
+            match ordering {
+                Some(ordering) => match *op {
+                    symb::Greater => ordering == Ordering::Greater,
+                    symb::GreaterEqual => ordering != Ordering::Less,
+                    symb::Less => ordering == Ordering::Less,
+                    symb::LessEqual => ordering != Ordering::Greater,
+                    symb::Equal => ordering == Ordering::Equal,
+                    symb::NotEqual => ordering != Ordering::Equal,
+                    _ => false,
+                },
+                None => *op == symb::NotEqual,
+            }
+        }
+    }
+}
+
+impl Field {
+    fn from_name(name: &str) -> Option<Field> {
+        match name {
+            "major" => Some(Field::Major),
+            "minor" => Some(Field::Minor),
+            "patch" => Some(Field::Patch),
+            "pre_release" => Some(Field::PreRelease),
+            "build_number" => Some(Field::BuildNumber),
+            _ => None,
+        }
+    }
+
+    fn value_of<'a>(self, sem_ver: &'a SemVer) -> Option<FieldValue<'a>> {
+        match self {
+            Field::Major => Some(FieldValue::Number(sem_ver.major.into())),
+            Field::Minor => Some(FieldValue::Number(sem_ver.minor.into())),
+            Field::Patch => Some(FieldValue::Number(sem_ver.patch.into())),
+            Field::PreRelease => sem_ver.pre_release.as_deref().map(FieldValue::Text),
+            Field::BuildNumber => sem_ver.build_number.as_deref().map(FieldValue::Text),
+        }
+    }
+}
 
 
 #[cfg(test)]
@@ -583,5 +634,22 @@ mod tests {
             }
         }
         Ok(())
+    }
+
+    #[test]
+    fn parenthesized_groups_are_respected() -> Result<(), Box<dyn Error>> {
+        let input: Vec<String> = vec!["1.0.0", "2.0.0", "2.1.0", "3.0.0"].into_iter().map(String::from).collect();
+        let result = query_semver(&String::from("(major == 1) or (major == 2 and minor == 1)"), input, true, SortOrder::None, 0)?;
+        assert_eq!(result, vec!["1.0.0", "2.1.0"]);
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_identifier_returns_error() {
+        let input: Vec<String> = vec![String::from("1.0.0")];
+        match query_semver(&String::from("foo > 1"), input, true, SortOrder::None, 0) {
+            Ok(_) => assert!(false, "error is expected for an unknown identifier"),
+            Err(err) => assert_eq!(err.to_string(), "error parsing query: [\"unsupported identifier `foo`, only major, minor, patch, pre_release and build_number are supported\"]"),
+        }
     }
 }
